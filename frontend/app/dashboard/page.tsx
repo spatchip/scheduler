@@ -183,6 +183,33 @@ export default function TrainerDashboard() {
     }
   }
 
+  async function cancelBooking(id: number) {
+    if (!confirm('Are you sure you want to CANCEL this sitting?\nThis will permanently delete the booking from the database.')) {
+      return;
+    }
+
+    try {
+      setLoadingBookings(true);
+      const res = await fetch(`${API}/api/trainer/bookings/${id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Cancel failed');
+      }
+
+      // Instantly refresh the list
+      const refreshed = await fetch(`${API}/api/trainer/bookings`, { credentials: 'include' });
+      const data = await refreshed.json();
+      setUpcoming(Array.isArray(data) ? data : []);
+    } catch (e: any) {
+      alert(e.message || 'Failed to cancel the booking');
+    } finally {
+      setLoadingBookings(false);
+    }
+  }
+
   if (loadingUser) {
     return (
       <div className="max-w-4xl mx-auto py-12">
@@ -232,21 +259,31 @@ export default function TrainerDashboard() {
           ) : (
             <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
               {upcoming.map((b) => (
-                <li key={b.id} className="p-5 md:p-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                  <div>
-                    <div className="font-medium">{b.client_name}</div>
-                    {b.client_email && <div className="text-sm text-zinc-500">{b.client_email}</div>}
-                    {b.service_type && <div className="text-xs text-zinc-400 mt-0.5">{b.service_type}</div>}
-                  </div>
+                <li key={b.id} className="p-5 md:p-6">
+                  <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                    <div className="flex-1">
+                      <div className="font-medium">{b.client_name}</div>
+                      {b.client_email && <div className="text-sm text-zinc-500">{b.client_email}</div>}
+                      {b.service_type && <div className="text-xs text-zinc-400 mt-0.5">{b.service_type}</div>}
+                      {b.notes && (
+                        <div className="text-sm text-zinc-500 mt-1 italic">“{b.notes}”</div>
+                      )}
+                    </div>
 
-                  <div className="text-right font-mono text-sm">
-                    <div>{formatBookingTime(b.start_time)}</div>
-                    <div className="text-zinc-400">→ {formatTimeRange(b.start_time, b.end_time)}</div>
-                  </div>
+                    <div className="text-right font-mono text-sm whitespace-nowrap">
+                      <div>{formatBookingTime(b.start_time)}</div>
+                      <div className="text-zinc-400">→ {formatTimeRange(b.start_time, b.end_time)}</div>
+                    </div>
 
-                  {b.notes && (
-                    <div className="text-sm text-zinc-500 md:max-w-[260px] md:text-right italic">“{b.notes}”</div>
-                  )}
+                    <div className="md:ml-4 md:pt-1">
+                      <button
+                        onClick={() => cancelBooking(b.id)}
+                        className="text-xs px-3 py-1.5 rounded-lg border border-red-300 text-red-600 hover:bg-red-50 active:bg-red-100 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950"
+                      >
+                        Cancel Sitting
+                      </button>
+                    </div>
+                  </div>
                 </li>
               ))}
             </ul>

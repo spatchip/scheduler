@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { query } from '../db';
+import * as emailService from '../utils/email';
 
 const router = Router();
 
@@ -111,7 +112,22 @@ router.post('/', async (req: Request, res: Response) => {
         notes || null
       ]
     );
-    res.status(201).json(result.rows[0]);
+
+    const booking = result.rows[0];
+
+    // Trigger simulated email notification to the abhyasi (client)
+    try {
+      if (booking.client_email) {
+        const staffRes = await query('SELECT name, email FROM staff WHERE id = $1', [staff_id]);
+        if (staffRes.rows.length > 0) {
+          await emailService.sendBookingConfirmation(booking, staffRes.rows[0]);
+        }
+      }
+    } catch (emailErr: any) {
+      console.error('Simulated email (confirmation) failed (non-fatal):', emailErr.message);
+    }
+
+    res.status(201).json(booking);
   } catch (err: any) {
     console.error(err);
     res.status(500).json({ error: 'Failed to create booking', details: err.message });

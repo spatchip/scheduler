@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { query } from '../db';
+import * as emailService from '../utils/email';
 
 const router = Router();
 
@@ -99,6 +100,49 @@ router.delete('/availability/:id', async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('Delete availability error:', err);
     res.status(500).json({ error: 'Failed to delete availability block' });
+  }
+});
+
+// DELETE /api/trainer/bookings/:id - Cancel (delete) one of the trainer's own bookings
+router.delete('/bookings/:id', async (req: Request, res: Response) => {
+  try {
+    const trainerId = getTrainerId(req);
+    const { id } = req.params;
+
+    // Fetch the booking first so we can send cancellation email with details
+    const bookingRes = await query(
+      `SELECT b.*, s.name as staff_name 
+       FROM bookings b
+       JOIN staff s ON b.staff_id = s.id
+       WHERE b.id = $1 AND b.staff_id = $2`,
+      [id, trainerId]
+    );
+
+    if (bookingRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Booking not found or does not belong to you' });
+    }
+
+    const booking = bookingRes.rows[0];
+
+    // Perform the delete (as requested: remove from database)
+    const delRes = await query(
+      'DELETE FROM bookings WHERE id = $1 AND staff_id = $2 RETURNING id',
+      [id, trainerId]
+    );
+
+    if (delRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Booking not found or does not belong to you' });
+    }
+
+    // Trigger simulated cancellation email to the abhyasi
+    if (booking.client_email) {
+      await emailService.sendBookingCancellation(booking, { name: booking.staff_name || 'Your trainer' });
+    }
+
+    res.json({ success: true, id: delRes.rows[0].id });
+  } catch (err: any) {
+    console.error('Trainer cancel booking error:', err);
+    res.status(500).json({ error: 'Failed to cancel booking' });
   }
 });
 
