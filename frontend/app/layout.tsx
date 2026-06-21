@@ -25,6 +25,8 @@ const navLinks = [
   { href: "/", label: "Dashboard" },
   { href: "/staff", label: "Staff" },
   { href: "/book", label: "Book Now" },
+  { href: "/login", label: "Trainer Login" },
+  { href: "/dashboard", label: "Trainer Dashboard" },
   { href: "/schedule", label: "Schedule" },
   { href: "/bookings", label: "Bookings" },
 ];
