@@ -68,6 +68,7 @@ app.get('/', (_req: Request, res: Response) => {
       'GET /api/auth/me',
       'POST /api/auth/logout',
       'GET /api/trainer/bookings (protected)',
+      'DELETE /api/trainer/bookings/:id (protected - cancel + email)',
       'GET/POST/DELETE /api/trainer/availability (protected)',
       'GET/POST/PUT/DELETE /api/staff',
       'GET/POST/PUT/DELETE /api/bookings',
