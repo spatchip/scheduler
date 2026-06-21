@@ -82,23 +82,28 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-// Graceful shutdown
-const server = app.listen(PORT, async () => {
-  console.log(`Backend listening on http://localhost:${PORT}`);
-  console.log('Testing DB connection...');
-  await testConnection();
-});
+// Graceful shutdown - only start server in non-test environments
+let server: any;
+if (process.env.NODE_ENV !== 'test') {
+  server = app.listen(PORT, async () => {
+    console.log(`Backend listening on http://localhost:${PORT}`);
+    console.log('Testing DB connection...');
+    await testConnection();
+  });
 
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
+}
 
 async function shutdown() {
   console.log('Shutting down gracefully...');
-  server.close(async () => {
-    await closePool();
-    console.log('Closed DB pool and server');
-    process.exit(0);
-  });
+  if (server) {
+    server.close(async () => {
+      await closePool();
+      console.log('Closed DB pool and server');
+      process.exit(0);
+    });
+  }
   // Force close after 10s
   setTimeout(() => process.exit(1), 10000);
 }
