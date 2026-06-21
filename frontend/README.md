@@ -1,3 +1,7 @@
+This is the **Scheduler** frontend (Next.js).
+
+See the **root README.md** (one level up) for the full project documentation, demo credentials, local setup, and detailed instructions for going from this GitHub repo all the way to a live production deployment (Vercel + Render + Neon, etc.).
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started
