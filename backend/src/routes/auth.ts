@@ -47,10 +47,12 @@ router.post('/login', async (req: Request, res: Response) => {
     });
 
     // Set httpOnly cookie (secure in prod)
+    // Cookie settings for both same-origin dev and cross-origin prod (Vercel frontend + Render/etc backend)
+    const isProd = process.env.NODE_ENV === 'production';
     res.cookie('auth_token', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      secure: isProd,           // Required for sameSite=none
+      sameSite: isProd ? 'none' : 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       path: '/',
     });
