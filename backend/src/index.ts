@@ -7,6 +7,7 @@ import bookingsRoutes from './routes/bookings';
 import availabilityRoutes from './routes/availability';
 import authRoutes from './routes/auth';
 import trainerRoutes from './routes/trainer';
+import slotsRoutes from './routes/slots';
 import { authenticateToken } from './middleware/auth';
 import { testConnection, closePool } from './db';
 
@@ -45,6 +46,7 @@ app.get('/api/health', async (_req: Request, res: Response) => {
 app.use('/api/staff', staffRoutes);
 app.use('/api/bookings', bookingsRoutes);
 app.use('/api/availability', availabilityRoutes);
+app.use('/api/slots', slotsRoutes);
 
 // Auth (public)
 app.use('/api/auth', authRoutes);
@@ -73,6 +75,7 @@ app.get('/', (_req: Request, res: Response) => {
       'GET/POST/PUT/DELETE /api/staff',
       'GET/POST/PUT/DELETE /api/bookings',
       'GET/POST/DELETE /api/availability',
+      'GET /api/slots?staffId=&date= (or from=&to=)',
     ],
   });
 });

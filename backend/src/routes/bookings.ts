@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { query } from '../db';
+import { query, getClient } from '../db';
 import * as emailService from '../utils/email';
 
 const router = Router();
@@ -63,8 +63,10 @@ router.get('/:id', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/bookings - create (basic conflict check skipped for initial version)
+// POST /api/bookings - create with transactional overlap check + advisory lock
 router.post('/', async (req: Request, res: Response) => {
+  const client = await getClient();
+
   try {
     const {
       staff_id,
@@ -82,22 +84,32 @@ router.post('/', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'staff_id, start_time, end_time, client_name are required' });
     }
 
-    // Very basic overlap check (for demo; production should use exclusion constraints or advisory locks)
-    // Soft-deleted (status='cancelled') bookings do not block the slot (they free it up)
-    const overlap = await query(
-      `SELECT id FROM bookings 
-       WHERE staff_id = $1 
+    await client.query('BEGIN');
+
+    // Serialize bookings per staff member to prevent double-booking races
+    await client.query('SELECT pg_advisory_xact_lock($1)', [Number(staff_id)]);
+
+    // Lock overlapping rows; cancelled bookings are ignored and do not block the slot
+    const overlap = await client.query(
+      `SELECT id FROM bookings
+       WHERE staff_id = $1
          AND status != 'cancelled'
-         AND start_time < $3::timestamptz 
-         AND end_time > $2::timestamptz`,
+         AND start_time < $3::timestamptz
+         AND end_time > $2::timestamptz
+       FOR UPDATE`,
       [staff_id, start_time, end_time]
     );
+
     if (overlap.rows.length > 0) {
-      return res.status(409).json({ error: 'Time slot overlaps with existing booking for this staff' });
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'Time slot overlaps with an existing booking for this staff member',
+        code: 'BOOKING_OVERLAP',
+      });
     }
 
-    const result = await query(
-      `INSERT INTO bookings 
+    const result = await client.query(
+      `INSERT INTO bookings
        (staff_id, start_time, end_time, client_name, client_email, client_phone, status, service_type, notes)
        VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, 'confirmed'), $8, $9)
        RETURNING *`,
@@ -110,9 +122,11 @@ router.post('/', async (req: Request, res: Response) => {
         client_phone || null,
         status || null,
         service_type || null,
-        notes || null
+        notes || null,
       ]
     );
+
+    await client.query('COMMIT');
 
     const booking = result.rows[0];
 
@@ -130,8 +144,15 @@ router.post('/', async (req: Request, res: Response) => {
 
     res.status(201).json(booking);
   } catch (err: any) {
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      // ignore rollback errors
+    }
     console.error(err);
     res.status(500).json({ error: 'Failed to create booking', details: err.message });
+  } finally {
+    client.release();
   }
 });
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { DateTime } from 'luxon';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
@@ -12,28 +12,14 @@ interface Staff {
   department: string | null;
 }
 
-interface Availability {
-  id: number;
-  staff_id: number;
+interface Slot {
   start_time: string;
   end_time: string;
-  day_of_week: number | null;
-  specific_date: string | null;
-  is_available: boolean;
 }
 
-interface Booking {
-  id: number;
-  staff_id: number;
-  start_time: string;
-  end_time: string;
-  status: string;
-  client_name: string;
-}
-
-interface TimeSlot {
-  start: DateTime; // UTC
-  end: DateTime;   // UTC
+interface DaySlots {
+  date: string;
+  slots: Slot[];
 }
 
 interface SuccessBooking {
@@ -47,14 +33,12 @@ interface SuccessBooking {
 export default function PublicBookingPage() {
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [selectedStaffId, setSelectedStaffId] = useState<number | null>(null);
-  const [availability, setAvailability] = useState<Availability[]>([]);
-  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [slotsByDate, setSlotsByDate] = useState<Record<string, Slot[]>>({});
   const [loading, setLoading] = useState(true);
 
   const [selectedDate, setSelectedDate] = useState<DateTime | null>(null);
-  const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
+  const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
 
-  // Form state
   const [clientName, setClientName] = useState('');
   const [clientEmail, setClientEmail] = useState('');
   const [clientPhone, setClientPhone] = useState('');
@@ -63,34 +47,49 @@ export default function PublicBookingPage() {
   const [bookError, setBookError] = useState<string | null>(null);
   const [successBooking, setSuccessBooking] = useState<SuccessBooking | null>(null);
 
-  // Generate next 14 days starting from today (local)
   const next14Days = useMemo(() => {
     const start = DateTime.now().startOf('day');
     return Array.from({ length: 14 }, (_, i) => start.plus({ days: i }));
   }, []);
 
-  // Load staff on mount
+  const rangeFrom = next14Days[0]?.toISODate();
+  const rangeTo = next14Days[next14Days.length - 1]?.toISODate();
+
+  const fetchSlots = useCallback(async (staffId: number) => {
+    if (!rangeFrom || !rangeTo) return;
+
+    const res = await fetch(
+      `${API}/api/slots?staffId=${staffId}&from=${rangeFrom}&to=${rangeTo}`
+    );
+    if (!res.ok) throw new Error('Failed to load available slots');
+
+    const data = await res.json();
+    const days: DaySlots[] = Array.isArray(data.days) ? data.days : [];
+    const map: Record<string, Slot[]> = {};
+    for (const day of days) {
+      map[day.date] = day.slots;
+    }
+    setSlotsByDate(map);
+  }, [rangeFrom, rangeTo]);
+
   useEffect(() => {
     fetch(`${API}/api/staff`)
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data) && data.length > 0) {
-          const minimalStaff: Staff[] = data.map((s: any) => ({
+          const minimalStaff: Staff[] = data.map((s: Staff) => ({
             id: s.id,
             name: s.name,
             role: s.role,
             department: s.department,
           }));
           setStaffList(minimalStaff);
-          // Auto-select first staff
-          const firstId = minimalStaff[0].id;
-          setSelectedStaffId(firstId);
+          setSelectedStaffId(minimalStaff[0].id);
         }
       })
       .catch(() => setLoading(false));
   }, []);
 
-  // Load availability + bookings when staff changes
   useEffect(() => {
     if (!selectedStaffId) return;
 
@@ -99,145 +98,52 @@ export default function PublicBookingPage() {
     setSelectedSlot(null);
     setSuccessBooking(null);
     setBookError(null);
+    setSlotsByDate({});
 
-    Promise.all([
-      fetch(`${API}/api/availability?staffId=${selectedStaffId}`).then((r) => r.json()),
-      fetch(`${API}/api/bookings?staffId=${selectedStaffId}`).then((r) => r.json()),
-    ])
-      .then(([availData, bookingsData]) => {
-        setAvailability(Array.isArray(availData) ? availData : []);
-        setBookings(Array.isArray(bookingsData) ? bookingsData : []);
-      })
+    fetchSlots(selectedStaffId)
+      .catch(() => setSlotsByDate({}))
       .finally(() => setLoading(false));
-  }, [selectedStaffId]);
+  }, [selectedStaffId, fetchSlots]);
 
-  // Auto-select first date that has free slots when data is ready
   useEffect(() => {
-    if (!selectedStaffId || availability.length === 0) return;
+    if (!selectedStaffId || loading) return;
 
     const firstWithSlots = next14Days.find((d) => {
-      const free = getFreeSlotsForDate(d, availability, bookings);
-      return free.length > 0;
+      const dateStr = d.toISODate()!;
+      return (slotsByDate[dateStr]?.length ?? 0) > 0;
     });
 
     if (firstWithSlots) {
       setSelectedDate(firstWithSlots);
     } else if (next14Days.length > 0) {
-      setSelectedDate(next14Days[0]); // still allow viewing even if none free
+      setSelectedDate(next14Days[0]);
     }
-  }, [selectedStaffId, availability, bookings, next14Days]);
+  }, [selectedStaffId, slotsByDate, next14Days, loading]);
 
-  // Pure function: compute free slots for a given local day.
-  // Expands broad availability windows (e.g. 9:00-17:00) into 60-minute bookable chunks
-  // and filters out overlaps with existing bookings. All times treated as UTC from DB.
-  function getFreeSlotsForDate(
-    date: DateTime,
-    availRules: Availability[],
-    currentBookings: Booking[]
-  ): TimeSlot[] {
-    const dateStr = date.toISODate()!;
-    const luxWeekday = date.weekday; // 1=Mon ... 7=Sun
-    const pgDow = luxWeekday === 7 ? 0 : luxWeekday; // match Postgres 0=Sun ... 6=Sat
-
-    const rules = availRules.filter((r) => {
-      if (r.is_available === false) return false;
-      if (r.specific_date && r.specific_date === dateStr) return true;
-      if (r.day_of_week !== null && r.day_of_week === pgDow) return true;
-      return false;
-    });
-
-    if (rules.length === 0) return [];
-
-    const SLOT_MINUTES = 60;
-    const slots: TimeSlot[] = [];
-
-    for (const rule of rules) {
-      let startTime = rule.start_time || '';
-      let endTime = rule.end_time || '';
-      if (startTime.length === 5) startTime += ':00';
-      if (endTime.length === 5) endTime += ':00';
-
-      const windowStart = DateTime.fromISO(`${dateStr}T${startTime}Z`, { zone: 'utc' });
-      const windowEnd = DateTime.fromISO(`${dateStr}T${endTime}Z`, { zone: 'utc' });
-
-      if (!windowStart.isValid || !windowEnd.isValid || windowEnd <= windowStart) continue;
-
-      // Generate 60-min chunks inside the window
-      let chunkStart = windowStart;
-      while (chunkStart.plus({ minutes: SLOT_MINUTES }) <= windowEnd) {
-        const chunkEnd = chunkStart.plus({ minutes: SLOT_MINUTES });
-
-        // Skip past
-        if (chunkEnd <= DateTime.utc()) {
-          chunkStart = chunkStart.plus({ minutes: SLOT_MINUTES });
-          continue;
-        }
-
-        // Check booking overlaps for this chunk.
-        // Soft-deleted (cancelled) bookings are filtered here so their timeslots become available again for public booking.
-        const overlapsExisting = currentBookings.some((b) => {
-          if (b.status === 'cancelled') return false;
-          const bs = DateTime.fromISO(b.start_time, { zone: 'utc' });
-          const be = DateTime.fromISO(b.end_time, { zone: 'utc' });
-          return bs < chunkEnd && be > chunkStart;
-        });
-
-        if (!overlapsExisting) {
-          slots.push({ start: chunkStart, end: chunkEnd });
-        }
-
-        chunkStart = chunkStart.plus({ minutes: SLOT_MINUTES });
-      }
-    }
-
-    // Sort + dedupe just in case
-    slots.sort((a, b) => a.start.toMillis() - b.start.toMillis());
-    const unique = slots.filter((s, i, arr) => i === 0 || s.start.toISO() !== arr[i - 1].start.toISO());
-    return unique;
-  }
-
-  // Memoized free slots for currently selected date
   const freeSlotsForSelected = useMemo(() => {
     if (!selectedDate) return [];
-    return getFreeSlotsForDate(selectedDate, availability, bookings);
-  }, [selectedDate, availability, bookings]);
+    return slotsByDate[selectedDate.toISODate()!] ?? [];
+  }, [selectedDate, slotsByDate]);
 
-  // Handle staff selection (from cards)
   function selectStaff(id: number) {
     if (id === selectedStaffId) return;
     setSelectedStaffId(id);
   }
 
-  // Handle date selection
   function selectDate(date: DateTime) {
     setSelectedDate(date);
     setSelectedSlot(null);
   }
 
-  // Handle time slot selection
-  function selectTimeSlot(slot: TimeSlot) {
+  function selectTimeSlot(slot: Slot) {
     setSelectedSlot(slot);
     setBookError(null);
-    // Scroll to form on mobile
     setTimeout(() => {
       const formEl = document.getElementById('booking-form');
       if (formEl) formEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 50);
   }
 
-  // Refetch bookings (after successful create)
-  async function refetchBookings() {
-    if (!selectedStaffId) return;
-    try {
-      const res = await fetch(`${API}/api/bookings?staffId=${selectedStaffId}`);
-      const data = await res.json();
-      if (Array.isArray(data)) setBookings(data);
-    } catch (e) {
-      // ignore
-    }
-  }
-
-  // Submit booking
   async function handleBookingSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedStaffId || !selectedSlot || !clientName.trim() || !clientEmail.trim()) {
@@ -250,8 +156,8 @@ export default function PublicBookingPage() {
 
     const payload = {
       staff_id: selectedStaffId,
-      start_time: selectedSlot.start.toISO(),
-      end_time: selectedSlot.end.toISO(),
+      start_time: selectedSlot.start_time,
+      end_time: selectedSlot.end_time,
       client_name: clientName.trim(),
       client_email: clientEmail.trim(),
       client_phone: clientPhone.trim() || null,
@@ -272,9 +178,8 @@ export default function PublicBookingPage() {
 
       const created = await res.json();
 
-      // Success UI
-      const localStart = selectedSlot.start.setZone('local');
-      const localEnd = selectedSlot.end.setZone('local');
+      const localStart = DateTime.fromISO(selectedSlot.start_time, { zone: 'utc' }).setZone('local');
+      const localEnd = DateTime.fromISO(selectedSlot.end_time, { zone: 'utc' }).setZone('local');
 
       setSuccessBooking({
         id: created.id,
@@ -283,18 +188,16 @@ export default function PublicBookingPage() {
         client_name: clientName.trim(),
       });
 
-      // Refresh bookings so the slot disappears from the list
-      await refetchBookings();
+      await fetchSlots(selectedStaffId);
 
-      // Clear selection
       setSelectedSlot(null);
-      // Clear form
       setClientName('');
       setClientEmail('');
       setClientPhone('');
       setNotes('');
-    } catch (err: any) {
-      setBookError(err.message || 'Something went wrong. Please try again.');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Something went wrong. Please try again.';
+      setBookError(message);
     } finally {
       setSubmitting(false);
     }
@@ -310,7 +213,6 @@ export default function PublicBookingPage() {
     setBookError(null);
   }
 
-  const selectedStaff = staffList.find((s) => s.id === selectedStaffId);
   const tzName = DateTime.local().zoneName || 'your local time';
 
   return (
@@ -325,7 +227,6 @@ export default function PublicBookingPage() {
         </p>
       </div>
 
-      {/* Staff Selector */}
       <div className="mb-8">
         <div className="flex items-center justify-between mb-3 px-1">
           <div className="text-sm font-medium tracking-wider text-zinc-500">SELECT TEAM MEMBER</div>
@@ -363,7 +264,6 @@ export default function PublicBookingPage() {
 
       {selectedStaffId && (
         <>
-          {/* Calendar - Next 14 days */}
           <div className="mb-8">
             <div className="flex items-baseline justify-between mb-3 px-1">
               <div>
@@ -379,14 +279,14 @@ export default function PublicBookingPage() {
 
             <div className="flex gap-2.5 overflow-x-auto pb-3 snap-x snap-mandatory -mx-1 px-1 scrollbar-thin">
               {next14Days.map((date) => {
-                const freeSlots = getFreeSlotsForDate(date, availability, bookings);
-                const numFree = freeSlots.length;
-                const isSelected = selectedDate?.toISODate() === date.toISODate();
-                const isToday = date.toISODate() === DateTime.now().toISODate();
+                const dateStr = date.toISODate()!;
+                const numFree = slotsByDate[dateStr]?.length ?? 0;
+                const isSelected = selectedDate?.toISODate() === dateStr;
+                const isToday = dateStr === DateTime.now().toISODate();
 
                 return (
                   <button
-                    key={date.toISODate()}
+                    key={dateStr}
                     onClick={() => selectDate(date)}
                     disabled={numFree === 0}
                     className={`snap-start flex-shrink-0 w-[78px] rounded-2xl border p-3 text-center transition-all active:scale-[0.985] ${
@@ -411,7 +311,6 @@ export default function PublicBookingPage() {
             </div>
           </div>
 
-          {/* Time Slots */}
           {selectedDate && (
             <div className="mb-8">
               <div className="flex items-center justify-between mb-3 px-1">
@@ -430,13 +329,13 @@ export default function PublicBookingPage() {
                 </div>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                  {freeSlotsForSelected.map((slot, idx) => {
-                    const localStart = slot.start.setZone('local');
-                    const localEnd = slot.end.setZone('local');
-                    const isSel = selectedSlot?.start.toISO() === slot.start.toISO();
+                  {freeSlotsForSelected.map((slot) => {
+                    const localStart = DateTime.fromISO(slot.start_time, { zone: 'utc' }).setZone('local');
+                    const localEnd = DateTime.fromISO(slot.end_time, { zone: 'utc' }).setZone('local');
+                    const isSel = selectedSlot?.start_time === slot.start_time;
                     return (
                       <button
-                        key={idx}
+                        key={slot.start_time}
                         onClick={() => selectTimeSlot(slot)}
                         className={`rounded-2xl border px-4 py-3 text-sm font-medium transition-all text-left ${
                           isSel
@@ -456,13 +355,13 @@ export default function PublicBookingPage() {
             </div>
           )}
 
-          {/* Booking Form / Success */}
           {selectedSlot && !successBooking && (
             <div id="booking-form" className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-6 md:p-8 mb-8">
               <div className="mb-6">
                 <div className="uppercase text-xs tracking-[2px] text-emerald-600 font-medium">Confirm your slot</div>
                 <div className="text-2xl font-semibold tracking-tighter mt-1">
-                  {selectedSlot.start.setZone('local').toFormat('h:mm a')} – {selectedSlot.end.setZone('local').toFormat('h:mm a')}
+                  {DateTime.fromISO(selectedSlot.start_time, { zone: 'utc' }).setZone('local').toFormat('h:mm a')} –{' '}
+                  {DateTime.fromISO(selectedSlot.end_time, { zone: 'utc' }).setZone('local').toFormat('h:mm a')}
                 </div>
                 <div className="text-sm text-zinc-500">{selectedDate?.toFormat('cccc, LLL dd yyyy')} • {tzName}</div>
               </div>
@@ -515,7 +414,6 @@ export default function PublicBookingPage() {
             </div>
           )}
 
-          {/* Success State */}
           {successBooking && (
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/40 p-8 mb-8">
               <div className="text-emerald-600 text-sm font-medium tracking-widest">BOOKING CONFIRMED</div>
@@ -562,7 +460,7 @@ export default function PublicBookingPage() {
       )}
 
       <div className="mt-10 text-xs text-zinc-400 px-1">
-        This is a public booking demo. Times are calculated from the staff’s declared availability and exclude existing bookings. All conversions use your browser’s local timezone.
+        Available slots are computed server-side from staff availability and existing bookings. All times are displayed in your browser’s local timezone.
       </div>
     </div>
   );
