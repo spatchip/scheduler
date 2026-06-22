@@ -1,6 +1,6 @@
 import request from 'supertest';
 import app from '../index';  // default export of the Express app
-import { query, closePool } from '../db';
+import { query } from '../db';
 import * as emailService from '../utils/email';
 
 describe('Trainer Cancellation Route (Integration)', () => {
@@ -99,8 +99,4 @@ describe('Trainer Cancellation Route (Integration)', () => {
     expect(deleteRes.body.error).toMatch(/not found or does not belong/i);
   });
 
-  afterAll(async () => {
-    // Close the DB pool so Jest can exit cleanly
-    await closePool();
-  });
 });

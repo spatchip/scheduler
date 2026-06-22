@@ -1,6 +1,6 @@
 import request from 'supertest';
 import app from '../index';
-import { closePool } from '../db';
+
 
 describe('RBAC admin route protection (Integration)', () => {
   let trainerCookie: string;
@@ -55,7 +55,4 @@ describe('RBAC admin route protection (Integration)', () => {
     expect(res.body.code).toBe('FORBIDDEN_ADMIN_ONLY');
   });
 
-  afterAll(async () => {
-    await closePool();
-  });
 });
