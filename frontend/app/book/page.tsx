@@ -73,7 +73,7 @@ export default function PublicBookingPage() {
   }, [rangeFrom, rangeTo]);
 
   useEffect(() => {
-    fetch(`${API}/api/staff`)
+    fetch(`${API}/api/public/staff`)
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data) && data.length > 0) {

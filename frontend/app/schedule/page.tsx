@@ -1,8 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+
+function isAdmin(role?: string | null) {
+  return (role || '').toLowerCase() === 'admin';
+}
 
 interface Staff { id: number; name: string; }
 interface Booking {
@@ -25,6 +30,7 @@ interface Availability {
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export default function SchedulePage() {
+  const router = useRouter();
   const [staff, setStaff] = useState<Staff[]>([]);
   const [selectedStaff, setSelectedStaff] = useState<string>('');
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -32,20 +38,31 @@ export default function SchedulePage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`${API}/api/staff`).then(r => r.json()).then(d => {
-      if (Array.isArray(d)) {
-        setStaff(d);
-        if (d.length > 0) setSelectedStaff(String(d[0].id));
-      }
-    });
-  }, []);
+    fetch(`${API}/api/auth/me`, { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data) => {
+        if (!isAdmin(data.user?.role)) {
+          router.replace('/dashboard');
+          return;
+        }
+        return fetch(`${API}/api/staff`, { credentials: 'include' });
+      })
+      .then((r) => r?.json())
+      .then((d) => {
+        if (Array.isArray(d)) {
+          setStaff(d);
+          if (d.length > 0) setSelectedStaff(String(d[0].id));
+        }
+      })
+      .catch(() => router.replace('/login'));
+  }, [router]);
 
   useEffect(() => {
     if (!selectedStaff) return;
     setLoading(true);
     Promise.all([
-      fetch(`${API}/api/bookings?staffId=${selectedStaff}`).then(r => r.json()),
-      fetch(`${API}/api/availability?staffId=${selectedStaff}`).then(r => r.json()),
+      fetch(`${API}/api/bookings?staffId=${selectedStaff}`, { credentials: 'include' }).then(r => r.json()),
+      fetch(`${API}/api/availability?staffId=${selectedStaff}`, { credentials: 'include' }).then(r => r.json()),
     ]).then(([b, a]) => {
       setBookings(Array.isArray(b) ? b : []);
       setAvailability(Array.isArray(a) ? a : []);

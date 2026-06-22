@@ -31,8 +31,8 @@ export default function TrainerLoginPage() {
         throw new Error(data.error || 'Login failed');
       }
 
-      // Success - redirect to trainer dashboard
-      router.push('/dashboard');
+      const role = (data.user?.role || '').toLowerCase();
+      router.push(role === 'admin' ? '/admin' : '/dashboard');
     } catch (err: any) {
       setError(err.message || 'Unable to log in. Please check your credentials.');
     } finally {
@@ -43,12 +43,14 @@ export default function TrainerLoginPage() {
   return (
     <div className="max-w-md mx-auto mt-12">
       <div className="mb-8 text-center">
-        <h1 className="text-3xl font-semibold tracking-tighter">Trainer Login</h1>
+        <h1 className="text-3xl font-semibold tracking-tighter">Staff Login</h1>
         <p className="mt-2 text-zinc-600 dark:text-zinc-400">
-          Sign in with your staff credentials to access your dashboard.
+          Trainers access their dashboard; admins access the full overview.
         </p>
         <p className="mt-1 text-xs text-zinc-500">
-          Demo: Use any seeded staff email + password <span className="font-mono">password123</span>
+          Demo trainers: <span className="font-mono">alice.chen@example.com</span> / <span className="font-mono">password123</span>
+          <br />
+          Demo admin: <span className="font-mono">admin@example.com</span> / <span className="font-mono">password123</span>
         </p>
       </div>
 
@@ -92,7 +94,7 @@ export default function TrainerLoginPage() {
         </button>
 
         <p className="text-center text-xs text-zinc-500 pt-2">
-          After logging in you will be taken to your protected Trainer Dashboard.
+          Admins are redirected to Admin Overview; trainers go to their Trainer Dashboard.
         </p>
       </form>
     </div>

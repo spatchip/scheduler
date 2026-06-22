@@ -21,7 +21,7 @@ router.post('/login', async (req: Request, res: Response) => {
     }
 
     const result = await query(
-      'SELECT id, name, email, password FROM staff WHERE LOWER(email) = LOWER($1) LIMIT 1',
+      'SELECT id, name, email, password, role FROM staff WHERE LOWER(email) = LOWER($1) LIMIT 1',
       [email]
     );
 
@@ -44,6 +44,7 @@ router.post('/login', async (req: Request, res: Response) => {
       id: staff.id,
       email: staff.email,
       name: staff.name,
+      role: staff.role,
     });
 
     // Set httpOnly cookie (secure in prod)
@@ -63,6 +64,7 @@ router.post('/login', async (req: Request, res: Response) => {
         id: staff.id,
         name: staff.name,
         email: staff.email,
+        role: staff.role,
       },
       message: 'Login successful',
     });

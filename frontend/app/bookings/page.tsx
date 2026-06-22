@@ -1,8 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+
+function isAdmin(role?: string | null) {
+  return (role || '').toLowerCase() === 'admin';
+}
 
 interface Staff {
   id: number;
@@ -23,6 +28,7 @@ interface Booking {
 }
 
 export default function BookingsPage() {
+  const router = useRouter();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [loading, setLoading] = useState(true);
@@ -42,9 +48,17 @@ export default function BookingsPage() {
   async function loadAll() {
     try {
       const [bRes, sRes] = await Promise.all([
-        fetch(`${API}/api/bookings`),
-        fetch(`${API}/api/staff`),
+        fetch(`${API}/api/bookings`, { credentials: 'include' }),
+        fetch(`${API}/api/staff`, { credentials: 'include' }),
       ]);
+      if (bRes.status === 401 || sRes.status === 401) {
+        router.replace('/login');
+        return;
+      }
+      if (bRes.status === 403 || sRes.status === 403) {
+        router.replace('/dashboard');
+        return;
+      }
       const bData = await bRes.json();
       const sData = await sRes.json();
       setBookings(Array.isArray(bData) ? bData : []);
@@ -57,8 +71,17 @@ export default function BookingsPage() {
   }
 
   useEffect(() => {
-    loadAll();
-  }, []);
+    fetch(`${API}/api/auth/me`, { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data) => {
+        if (!isAdmin(data.user?.role)) {
+          router.replace('/dashboard');
+          return;
+        }
+        loadAll();
+      })
+      .catch(() => router.replace('/login'));
+  }, [router]);
 
   async function createBooking(e: React.FormEvent) {
     e.preventDefault();
@@ -96,6 +119,7 @@ export default function BookingsPage() {
       await fetch(`${API}/api/bookings/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ status: 'cancelled' }),
       });
       await loadAll();

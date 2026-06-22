@@ -4,11 +4,13 @@ import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import staffRoutes from './routes/staff';
 import bookingsRoutes from './routes/bookings';
+import bookingsPublicRoutes from './routes/bookingsPublic';
 import availabilityRoutes from './routes/availability';
 import authRoutes from './routes/auth';
 import trainerRoutes from './routes/trainer';
 import slotsRoutes from './routes/slots';
-import { authenticateToken } from './middleware/auth';
+import publicRoutes from './routes/public';
+import { authenticateToken, requireAdmin } from './middleware/auth';
 import { testConnection, closePool } from './db';
 
 dotenv.config();
@@ -42,11 +44,15 @@ app.get('/api/health', async (_req: Request, res: Response) => {
   });
 });
 
-// API routes
-app.use('/api/staff', staffRoutes);
-app.use('/api/bookings', bookingsRoutes);
-app.use('/api/availability', availabilityRoutes);
+// Public API routes (no auth)
+app.use('/api/public', publicRoutes);
+app.use('/api/bookings', bookingsPublicRoutes);
 app.use('/api/slots', slotsRoutes);
+
+// Admin-only API routes (auth + admin role required)
+app.use('/api/staff', authenticateToken, requireAdmin, staffRoutes);
+app.use('/api/bookings', authenticateToken, requireAdmin, bookingsRoutes);
+app.use('/api/availability', authenticateToken, requireAdmin, availabilityRoutes);
 
 // Auth (public)
 app.use('/api/auth', authRoutes);
@@ -72,9 +78,11 @@ app.get('/', (_req: Request, res: Response) => {
       'GET /api/trainer/bookings (protected)',
       'DELETE /api/trainer/bookings/:id (protected - cancel + email)',
       'GET/POST/DELETE /api/trainer/availability (protected)',
-      'GET/POST/PUT/DELETE /api/staff',
-      'GET/POST/PUT/DELETE /api/bookings',
-      'GET/POST/DELETE /api/availability',
+      'GET /api/public/staff',
+      'POST /api/bookings (public create)',
+      'GET/PUT/DELETE /api/bookings (admin only)',
+      'GET/POST/PUT/DELETE /api/staff (admin only)',
+      'GET/POST/DELETE /api/availability (admin only)',
       'GET /api/slots?staffId=&date= (or from=&to=)',
     ],
   });

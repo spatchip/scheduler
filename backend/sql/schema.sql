@@ -60,10 +60,15 @@ ALTER TABLE IF EXISTS bookings ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP W
 -- Optional seed data (uncomment / re-run as needed for fresh DBs)
 -- Demo staff matching README credentials (passwords hashed separately via script)
 INSERT INTO staff (name, email, role, department) VALUES
-  ('Alice Chen', 'alice.chen@example.com', 'Trainer', 'Meditation'),
-  ('Marcus Rivera', 'marcus.rivera@example.com', 'Trainer', 'Wellness'),
-  ('Priya Patel', 'priya.patel@example.com', 'Trainer', 'Counseling')
+  ('Alice Chen', 'alice.chen@example.com', 'trainer', 'Meditation'),
+  ('Marcus Rivera', 'marcus.rivera@example.com', 'trainer', 'Wellness'),
+  ('Priya Patel', 'priya.patel@example.com', 'trainer', 'Counseling'),
+  ('Jordan Admin', 'admin@example.com', 'admin', 'Operations')
 ON CONFLICT (email) DO NOTHING;
+
+-- Normalize legacy role values on existing databases
+UPDATE staff SET role = 'trainer' WHERE LOWER(role) = 'trainer' AND role != 'trainer';
+UPDATE staff SET role = 'admin' WHERE LOWER(role) = 'admin' AND role != 'admin';
 
 -- Example soft-cancelled booking (for demonstrating Cancelled History in dashboard)
 INSERT INTO bookings (staff_id, start_time, end_time, client_name, client_email, client_phone, status, service_type, notes, cancelled_at, created_at, updated_at)

@@ -1,8 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+
+function isAdmin(role?: string | null) {
+  return (role || '').toLowerCase() === 'admin';
+}
 
 interface Staff {
   id: number;
@@ -15,6 +20,7 @@ interface Staff {
 }
 
 export default function StaffPage() {
+  const router = useRouter();
   const [staff, setStaff] = useState<Staff[]>([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({ name: '', email: '', role: '', department: '', phone: '' });
@@ -23,7 +29,15 @@ export default function StaffPage() {
 
   async function loadStaff() {
     try {
-      const res = await fetch(`${API}/api/staff`);
+      const res = await fetch(`${API}/api/staff`, { credentials: 'include' });
+      if (res.status === 401) {
+        router.replace('/login');
+        return;
+      }
+      if (res.status === 403) {
+        router.replace('/dashboard');
+        return;
+      }
       const data = await res.json();
       setStaff(Array.isArray(data) ? data : []);
     } catch (e) {
@@ -35,8 +49,17 @@ export default function StaffPage() {
   }
 
   useEffect(() => {
-    loadStaff();
-  }, []);
+    fetch(`${API}/api/auth/me`, { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data) => {
+        if (!isAdmin(data.user?.role)) {
+          router.replace('/dashboard');
+          return;
+        }
+        loadStaff();
+      })
+      .catch(() => router.replace('/login'));
+  }, [router]);
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -46,6 +69,7 @@ export default function StaffPage() {
       const res = await fetch(`${API}/api/staff`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(form),
       });
       if (!res.ok) {
@@ -64,7 +88,7 @@ export default function StaffPage() {
   async function handleDelete(id: number) {
     if (!confirm('Delete this staff member?')) return;
     try {
-      await fetch(`${API}/api/staff/${id}`, { method: 'DELETE' });
+      await fetch(`${API}/api/staff/${id}`, { method: 'DELETE', credentials: 'include' });
       await loadStaff();
     } catch (e) {
       alert('Delete failed');

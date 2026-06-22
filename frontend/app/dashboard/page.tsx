@@ -74,6 +74,10 @@ export default function TrainerDashboard() {
           return;
         }
         const data = await res.json();
+        if ((data.user?.role || '').toLowerCase() === 'admin') {
+          router.replace('/admin');
+          return;
+        }
         if (mounted) setUser(data.user);
       } catch (e) {
         router.replace('/login');

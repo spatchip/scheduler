@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import Link from "next/link";
+import AppNav from "./components/AppNav";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -20,16 +20,6 @@ export const metadata: Metadata = {
     icon: "/favicon.ico",
   },
 };
-
-const navLinks = [
-  { href: "/", label: "Dashboard" },
-  { href: "/staff", label: "Staff" },
-  { href: "/book", label: "Book Now" },
-  { href: "/login", label: "Trainer Login" },
-  { href: "/dashboard", label: "Trainer Dashboard" },
-  { href: "/schedule", label: "Schedule" },
-  { href: "/bookings", label: "Bookings" },
-];
 
 export default function RootLayout({
   children,
@@ -54,17 +44,7 @@ export default function RootLayout({
               </div>
             </div>
 
-            <nav className="flex items-center gap-1 text-sm font-medium">
-              {navLinks.map((link) => (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  className="px-4 py-2 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors"
-                >
-                  {link.label}
-                </Link>
-              ))}
-            </nav>
+            <AppNav />
 
             <div className="flex items-center gap-3 text-sm">
               <div className="hidden sm:block text-zinc-500">Local • PostgreSQL</div>
