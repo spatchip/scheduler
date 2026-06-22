@@ -35,7 +35,7 @@ A full-featured demo application with a public booking experience for clients ("
      - Delete blocks — changes saved directly to PostgreSQL
 - **Cancellations**: "Cancel Sitting" button on each upcoming booking
   - Confirmation prompt
-  - Deletes the booking record from the database
+  - Soft-deletes the booking (sets status='cancelled' + cancelled_at) — record stays for history/audit; timeslot freed for rebooking
   - Instantly refreshes the UI
   - Triggers simulated cancellation email to the client
 
@@ -173,7 +173,7 @@ Future email vars (when you implement real transport in `src/utils/email.ts`): `
 - **Auth**: JWT stored in httpOnly cookie (harder for XSS). Supports cross-origin production deploys via `sameSite: 'none' + secure: true`.
 - **Timezones**: Every user-visible time goes through Luxon (UTC from DB → browser local). Availability blocks are stored as naive TIME + day_of_week and interpreted as UTC for slot generation.
 - **Emails**: Deliberately server-side side-effects so clients can't spoof notifications. Currently 100% console simulation.
-- **Cancellations**: Hard delete of the booking record (as specified). In a real system you would likely soft-delete or set `status = 'cancelled'` for audit history.
+- **Cancellations**: Soft-delete (status='cancelled' + cancelled_at timestamp) via trainer dashboard. Record retained in DB for history; cancelled timeslots become available again for public bookings. Simulated cancellation email still sent. (See "Soft-Delete Cancellations" implementation.)
 - **Testing**: Integration tests hit the real Express app + real Postgres (using seeded demo data + on-the-fly test bookings).
 
 ## From GitHub to a Live Server Environment (Production)
@@ -280,7 +280,7 @@ scheduler/
 
 See the "Next Steps" ideas from earlier work plus:
 - Real email delivery (SendGrid, Resend, etc.)
-- Soft-delete / status=‘cancelled’ for audit trail
+- (done) Soft-delete / status='cancelled' + cancelled_at for audit trail
 - Better error handling & loading states in UI
 - Rate limiting & input validation hardening
 - Docker support

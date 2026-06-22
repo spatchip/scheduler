@@ -23,6 +23,7 @@ interface Booking {
   status: string;
   service_type: string | null;
   notes: string | null;
+  cancelled_at?: string | null;
 }
 
 interface AvailabilityBlock {
@@ -43,6 +44,11 @@ export default function TrainerDashboard() {
 
   const [upcoming, setUpcoming] = useState<Booking[]>([]);
   const [loadingBookings, setLoadingBookings] = useState(true);
+
+  // Cancelled history loaded separately (via ?status=cancelled on trainer endpoint)
+  const [cancelledHistory, setCancelledHistory] = useState<Booking[]>([]);
+  const [loadingCancelled, setLoadingCancelled] = useState(true);
+  const [showCancelled, setShowCancelled] = useState(false);
 
   const [availability, setAvailability] = useState<AvailabilityBlock[]>([]);
   const [loadingAvail, setLoadingAvail] = useState(true);
@@ -84,13 +90,21 @@ export default function TrainerDashboard() {
   useEffect(() => {
     if (!user) return;
 
-    // Upcoming bookings
+    // Upcoming bookings (confirmed future only)
     setLoadingBookings(true);
     fetch(`${API}/api/trainer/bookings`, { credentials: 'include' })
       .then(r => r.json())
       .then(data => setUpcoming(Array.isArray(data) ? data : []))
       .catch(() => setUpcoming([]))
       .finally(() => setLoadingBookings(false));
+
+    // Cancelled History (soft-deleted)
+    setLoadingCancelled(true);
+    fetch(`${API}/api/trainer/bookings?status=cancelled`, { credentials: 'include' })
+      .then(r => r.json())
+      .then(data => setCancelledHistory(Array.isArray(data) ? data : []))
+      .catch(() => setCancelledHistory([]))
+      .finally(() => setLoadingCancelled(false));
 
     // Availability
     setLoadingAvail(true);
@@ -184,7 +198,7 @@ export default function TrainerDashboard() {
   }
 
   async function cancelBooking(id: number) {
-    if (!confirm('Are you sure you want to CANCEL this sitting?\nThis will permanently delete the booking from the database.')) {
+    if (!confirm('Are you sure you want to CANCEL this sitting?\nThis will mark it as cancelled (soft-delete) and move it to Cancelled History. A simulated cancellation email will be sent to the client.')) {
       return;
     }
 
@@ -199,10 +213,15 @@ export default function TrainerDashboard() {
         throw new Error(err.error || 'Cancel failed');
       }
 
-      // Instantly refresh the list
-      const refreshed = await fetch(`${API}/api/trainer/bookings`, { credentials: 'include' });
-      const data = await refreshed.json();
-      setUpcoming(Array.isArray(data) ? data : []);
+      // Instantly refresh upcoming + cancelled history (soft-delete moves it)
+      const [upRefreshed, canRefreshed] = await Promise.all([
+        fetch(`${API}/api/trainer/bookings`, { credentials: 'include' }),
+        fetch(`${API}/api/trainer/bookings?status=cancelled`, { credentials: 'include' }),
+      ]);
+      const upData = await upRefreshed.json();
+      const canData = await canRefreshed.json();
+      setUpcoming(Array.isArray(upData) ? upData : []);
+      setCancelledHistory(Array.isArray(canData) ? canData : []);
     } catch (e: any) {
       alert(e.message || 'Failed to cancel the booking');
     } finally {
@@ -290,6 +309,68 @@ export default function TrainerDashboard() {
           )}
         </div>
         <p className="text-[10px] text-zinc-400 mt-2 px-1">Times converted from UTC to your browser’s local timezone using Luxon.</p>
+      </div>
+
+      {/* Cancelled History (soft-deletes via trainer cancel; toggle to view) */}
+      <div className="mb-10">
+        <div className="flex items-center justify-between mb-3 px-1">
+          <h2 className="font-semibold tracking-tight text-xl">Cancelled History</h2>
+          <button
+            onClick={() => setShowCancelled(!showCancelled)}
+            className="text-xs px-3 py-1 rounded-lg border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-900"
+          >
+            {showCancelled ? 'Hide' : (cancelledHistory.length > 0 ? `Show (${cancelledHistory.length})` : 'Show')}
+          </button>
+        </div>
+
+        {showCancelled && (
+          <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 overflow-hidden">
+            {loadingCancelled ? (
+              <div className="p-8 text-center text-sm text-zinc-400">Loading cancelled history…</div>
+            ) : cancelledHistory.length === 0 ? (
+              <div className="p-8 text-center">
+                <p className="text-sm text-zinc-500">No cancelled sittings in history.</p>
+              </div>
+            ) : (
+              <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                {cancelledHistory.map((b) => (
+                  <li key={b.id} className="p-5 md:p-6 opacity-70">
+                    <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                      <div className="flex-1">
+                        <div className="font-medium">{b.client_name}</div>
+                        {b.client_email && <div className="text-sm text-zinc-500">{b.client_email}</div>}
+                        {b.service_type && <div className="text-xs text-zinc-400 mt-0.5">{b.service_type}</div>}
+                        {b.notes && (
+                          <div className="text-sm text-zinc-500 mt-1 italic">“{b.notes}”</div>
+                        )}
+                      </div>
+
+                      <div className="text-right font-mono text-sm whitespace-nowrap text-zinc-500">
+                        <div>{formatBookingTime(b.start_time)}</div>
+                        <div className="text-zinc-400">→ {formatTimeRange(b.start_time, b.end_time)}</div>
+                        {b.cancelled_at && (
+                          <div className="text-[10px] text-red-500/70 mt-1">
+                            Cancelled {formatBookingTime(b.cancelled_at)}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="md:ml-4 md:pt-1">
+                        <span className="text-xs px-3 py-1.5 rounded-lg border border-zinc-300 text-zinc-400 dark:border-zinc-700">Cancelled</span>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {!showCancelled && cancelledHistory.length > 0 && (
+          <p className="text-[10px] text-zinc-400 mt-1 px-1">
+            {cancelledHistory.length} cancelled sitting{cancelledHistory.length === 1 ? '' : 's'} — toggle “Show” to view details.
+          </p>
+        )}
       </div>
 
       {/* Section 2: Availability Manager */}

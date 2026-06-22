@@ -173,7 +173,8 @@ export default function PublicBookingPage() {
           continue;
         }
 
-        // Check booking overlaps for this chunk
+        // Check booking overlaps for this chunk.
+        // Soft-deleted (cancelled) bookings are filtered here so their timeslots become available again for public booking.
         const overlapsExisting = currentBookings.some((b) => {
           if (b.status === 'cancelled') return false;
           const bs = DateTime.fromISO(b.start_time, { zone: 'utc' });

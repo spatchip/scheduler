@@ -33,7 +33,7 @@ describe('Trainer Cancellation Route (Integration)', () => {
     expect(authCookie).toContain('auth_token');
   });
 
-  it('should allow a trainer to successfully delete (cancel) one of their bookings and trigger the simulated email utility', async () => {
+  it('should allow a trainer to successfully soft-delete (cancel) one of their bookings and trigger the simulated email utility', async () => {
     // 1. Create a test booking as an "abhyasi" (public endpoint) for the trainer
     const futureTime = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7); // 7 days in future
     const startTime = futureTime.toISOString();
@@ -58,7 +58,7 @@ describe('Trainer Cancellation Route (Integration)', () => {
     // 2. Spy on the email utility BEFORE the delete (it should be triggered on cancel)
     const sendCancelSpy = jest.spyOn(emailService, 'sendBookingCancellation');
 
-    // 3. As the trainer, cancel/delete the booking via the protected trainer route
+    // 3. As the trainer, cancel the booking via the protected trainer route (now soft-delete)
     const deleteRes = await request(app)
       .delete(`/api/trainer/bookings/${bookingId}`)
       .set('Cookie', authCookie);
@@ -80,9 +80,12 @@ describe('Trainer Cancellation Route (Integration)', () => {
       })
     );
 
-    // 5. Verify the booking was actually deleted from the database
-    const dbCheck = await query('SELECT id FROM bookings WHERE id = $1', [bookingId]);
-    expect(dbCheck.rows.length).toBe(0);
+    // 5. Verify soft-delete behavior: booking still exists but status='cancelled' and cancelled_at is set
+    const dbCheck = await query('SELECT id, status, cancelled_at FROM bookings WHERE id = $1', [bookingId]);
+    expect(dbCheck.rows.length).toBe(1);
+    expect(dbCheck.rows[0].status).toBe('cancelled');
+    expect(dbCheck.rows[0].cancelled_at).toBeDefined();
+    expect(dbCheck.rows[0].cancelled_at).not.toBeNull();
 
     sendCancelSpy.mockRestore();
   });

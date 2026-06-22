@@ -11,11 +11,28 @@ function getTrainerId(req: Request): number {
 }
 
 // GET /api/trainer/bookings - Upcoming confirmed sittings/bookings for the logged-in trainer
+// Supports ?status=cancelled to fetch soft-deleted history for this trainer (instead of default upcoming)
 router.get('/bookings', async (req: Request, res: Response) => {
   try {
     const trainerId = getTrainerId(req);
+    const { status } = req.query;
+
+    if (status === 'cancelled') {
+      const result = await query(
+        `SELECT id, client_name, client_email, client_phone, start_time, end_time, status, service_type, notes, cancelled_at
+         FROM bookings
+         WHERE staff_id = $1 
+           AND status = 'cancelled'
+         ORDER BY cancelled_at DESC NULLS LAST, start_time DESC
+         LIMIT 50`,
+        [trainerId]
+      );
+      return res.json(result.rows);
+    }
+
+    // Default: upcoming confirmed only (for "Upcoming Sittings")
     const result = await query(
-      `SELECT id, client_name, client_email, client_phone, start_time, end_time, status, service_type, notes
+      `SELECT id, client_name, client_email, client_phone, start_time, end_time, status, service_type, notes, cancelled_at
        FROM bookings
        WHERE staff_id = $1 
          AND status = 'confirmed'
@@ -103,7 +120,7 @@ router.delete('/availability/:id', async (req: Request, res: Response) => {
   }
 });
 
-// DELETE /api/trainer/bookings/:id - Cancel (delete) one of the trainer's own bookings
+// DELETE /api/trainer/bookings/:id - Cancel (soft-delete) one of the trainer's own bookings
 router.delete('/bookings/:id', async (req: Request, res: Response) => {
   try {
     const trainerId = getTrainerId(req);
@@ -124,22 +141,27 @@ router.delete('/bookings/:id', async (req: Request, res: Response) => {
 
     const booking = bookingRes.rows[0];
 
-    // Perform the delete (as requested: remove from database)
-    const delRes = await query(
-      'DELETE FROM bookings WHERE id = $1 AND staff_id = $2 RETURNING id',
+    // Soft-delete: set status to 'cancelled' and cancelled_at (instead of hard DELETE)
+    const updateRes = await query(
+      `UPDATE bookings 
+       SET status = 'cancelled', 
+           cancelled_at = NOW(), 
+           updated_at = NOW()
+       WHERE id = $1 AND staff_id = $2 
+       RETURNING id`,
       [id, trainerId]
     );
 
-    if (delRes.rows.length === 0) {
+    if (updateRes.rows.length === 0) {
       return res.status(404).json({ error: 'Booking not found or does not belong to you' });
     }
 
-    // Trigger simulated cancellation email to the abhyasi
+    // Trigger simulated cancellation email to the abhyasi (still happens on soft-cancel)
     if (booking.client_email) {
       await emailService.sendBookingCancellation(booking, { name: booking.staff_name || 'Your trainer' });
     }
 
-    res.json({ success: true, id: delRes.rows[0].id });
+    res.json({ success: true, id: updateRes.rows[0].id });
   } catch (err: any) {
     console.error('Trainer cancel booking error:', err);
     res.status(500).json({ error: 'Failed to cancel booking' });

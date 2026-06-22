@@ -83,6 +83,7 @@ router.post('/', async (req: Request, res: Response) => {
     }
 
     // Very basic overlap check (for demo; production should use exclusion constraints or advisory locks)
+    // Soft-deleted (status='cancelled') bookings do not block the slot (they free it up)
     const overlap = await query(
       `SELECT id FROM bookings 
        WHERE staff_id = $1 
@@ -159,6 +160,10 @@ router.put('/:id', async (req: Request, res: Response) => {
            client_email = COALESCE($5, client_email),
            client_phone = COALESCE($6, client_phone),
            status = COALESCE($7, status),
+           cancelled_at = CASE
+             WHEN COALESCE($7, status) = 'cancelled' AND status IS DISTINCT FROM 'cancelled' THEN CURRENT_TIMESTAMP
+             ELSE cancelled_at
+           END,
            service_type = COALESCE($8, service_type),
            notes = COALESCE($9, notes),
            updated_at = CURRENT_TIMESTAMP

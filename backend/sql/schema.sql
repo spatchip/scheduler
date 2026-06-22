@@ -45,7 +45,8 @@ CREATE TABLE IF NOT EXISTS bookings (
   service_type VARCHAR(100),
   notes TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  cancelled_at TIMESTAMP WITH TIME ZONE
 );
 
 -- Indexes for common queries
@@ -53,7 +54,33 @@ CREATE INDEX IF NOT EXISTS idx_bookings_staff_time ON bookings(staff_id, start_t
 CREATE INDEX IF NOT EXISTS idx_availability_staff ON availability(staff_id);
 CREATE INDEX IF NOT EXISTS idx_staff_email ON staff(email);
 
--- Optional seed data (comment out if not wanted)
--- INSERT INTO staff (name, email, role, department) VALUES
---   ('Alice Johnson', 'alice@example.com', 'Therapist', 'Wellness'),
---   ('Bob Smith', 'bob@example.com', 'Consultant', 'Business');
+-- Migration for soft-delete column (safe on existing DBs that predate cancelled_at)
+ALTER TABLE IF EXISTS bookings ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP WITH TIME ZONE;
+
+-- Optional seed data (uncomment / re-run as needed for fresh DBs)
+-- Demo staff matching README credentials (passwords hashed separately via script)
+INSERT INTO staff (name, email, role, department) VALUES
+  ('Alice Chen', 'alice.chen@example.com', 'Trainer', 'Meditation'),
+  ('Marcus Rivera', 'marcus.rivera@example.com', 'Trainer', 'Wellness'),
+  ('Priya Patel', 'priya.patel@example.com', 'Trainer', 'Counseling')
+ON CONFLICT (email) DO NOTHING;
+
+-- Example soft-cancelled booking (for demonstrating Cancelled History in dashboard)
+INSERT INTO bookings (staff_id, start_time, end_time, client_name, client_email, client_phone, status, service_type, notes, cancelled_at, created_at, updated_at)
+SELECT 
+  (SELECT id FROM staff WHERE email = 'alice.chen@example.com' LIMIT 1),
+  NOW() - INTERVAL '3 days',
+  NOW() - INTERVAL '3 days' + INTERVAL '1 hour',
+  'Sample Cancelled Client',
+  'cancelled@example.com',
+  NULL,
+  'cancelled',
+  'Intro Sitting',
+  'Example of a soft-deleted (cancelled) booking for history view',
+  NOW() - INTERVAL '2 days',
+  NOW() - INTERVAL '3 days',
+  NOW() - INTERVAL '2 days'
+WHERE (SELECT id FROM staff WHERE email = 'alice.chen@example.com' LIMIT 1) IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM bookings WHERE client_email = 'cancelled@example.com' AND status = 'cancelled'
+  );
